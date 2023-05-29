@@ -1271,7 +1271,7 @@ void clusterRenameNode(clusterNode *node, char *newname) {
 
 /* Return the greatest configEpoch found in the cluster, or the current
  * epoch if greater than any node configEpoch. */
-uint64_t clusterGetMaxEpoch(void) {
+uint64_t clusterGetMaxEpoch(void) {  // 从当前节点自身考虑
     uint64_t max = 0;
     dictIterator *di;
     dictEntry *de;
@@ -1321,7 +1321,7 @@ int clusterBumpConfigEpochWithoutConsensus(void) {
     if (myself->configEpoch == 0 ||
         myself->configEpoch != maxEpoch)
     {
-        server.cluster->currentEpoch++;
+        server.cluster->currentEpoch++;  // 如果currentEpoch<maxEpoch,自增后可能还是比maxEpoch小(impossible)
         myself->configEpoch = server.cluster->currentEpoch;
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_FSYNC_CONFIG);
@@ -1388,7 +1388,7 @@ void clusterHandleConfigEpochCollision(clusterNode *sender) {
     if (memcmp(sender->name,myself->name,CLUSTER_NAMELEN) <= 0) return;
     /* Get the next ID available at the best of this node knowledge. */
     server.cluster->currentEpoch++;
-    myself->configEpoch = server.cluster->currentEpoch;
+    myself->configEpoch = server.cluster->currentEpoch;  // id小的递增，基本上current 和 config 一致
     clusterSaveConfigOrDie(1);
     serverLog(LL_VERBOSE,
         "WARNING: configEpoch collision with node %.40s."
@@ -1922,7 +1922,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                     migrated_our_slots++;
                 }
                 clusterDelSlot(j);
-                clusterAddSlot(sender,j);
+                clusterAddSlot(sender,j);   // 不会迁移数据，改变slot映射
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                                      CLUSTER_TODO_UPDATE_STATE|
                                      CLUSTER_TODO_FSYNC_CONFIG);
@@ -2098,7 +2098,7 @@ static clusterNode *getNodeFromLinkAndMsg(clusterLink *link, clusterMsg *hdr) {
  * was processed, otherwise 0 if the link was freed since the packet
  * processing lead to some inconsistency error (for instance a PONG
  * received from the wrong sender ID). */
-int clusterProcessPacket(clusterLink *link) {
+int clusterProcessPacket(clusterLink *link) {     // redis bus msg
     clusterMsg *hdr = (clusterMsg*) link->rcvbuf;
     uint32_t totlen = ntohl(hdr->totlen);
     uint16_t type = ntohs(hdr->type);
@@ -2203,9 +2203,9 @@ int clusterProcessPacket(clusterLink *link) {
         senderCurrentEpoch = ntohu64(hdr->currentEpoch);
         senderConfigEpoch = ntohu64(hdr->configEpoch);
         if (senderCurrentEpoch > server.cluster->currentEpoch)
-            server.cluster->currentEpoch = senderCurrentEpoch;
+            server.cluster->currentEpoch = senderCurrentEpoch;  // 更新为最大的epoch
         /* Update the sender configEpoch if it is publishing a newer one. */
-        if (senderConfigEpoch > sender->configEpoch) {
+        if (senderConfigEpoch > sender->configEpoch) {  // 以ClusterMsg最新为准
             sender->configEpoch = senderConfigEpoch;
             clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                                  CLUSTER_TODO_FSYNC_CONFIG);
@@ -2546,10 +2546,10 @@ int clusterProcessPacket(clusterLink *link) {
             decrRefCount(channel);
             decrRefCount(message);
         }
-    } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST) {
+    } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST) {  // 发送failover请求
         if (!sender) return 1;  /* We don't know that node. */
         clusterSendFailoverAuthIfNeeded(sender,hdr);
-    } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK) {
+    } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK) {    // 收到vote ack
         if (!sender) return 1;  /* We don't know that node. */
         /* We consider this vote only if the sender is a master serving
          * a non zero number of slots, and its currentEpoch is greater or
@@ -3685,7 +3685,7 @@ void clusterHandleSlaveFailover(void) {
 
     /* Ask for votes if needed. */
     if (server.cluster->failover_auth_sent == 0) {
-        server.cluster->currentEpoch++;
+        server.cluster->currentEpoch++;    // slave 将epoch递增
         server.cluster->failover_auth_epoch = server.cluster->currentEpoch;
         serverLog(LL_WARNING,"Starting a failover election for epoch %llu.",
             (unsigned long long) server.cluster->currentEpoch);
