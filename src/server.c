@@ -2385,7 +2385,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     handleBlockedClientsTimeout();
 
     /* We should handle pending reads clients ASAP after event loop. */
-    handleClientsWithPendingReadsUsingThreads();
+    handleClientsWithPendingReadsUsingThreads();   // 解析和处理命令
 
     /* Handle TLS pending data. (must be done before flushAppendOnlyFile) */
     tlsProcessPendingData();
@@ -2455,7 +2455,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         flushAppendOnlyFile(0);
 
     /* Handle writes with pending output buffers. */
-    handleClientsWithPendingWritesUsingThreads();
+    handleClientsWithPendingWritesUsingThreads();  // 返回结果
 
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();
