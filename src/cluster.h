@@ -32,7 +32,7 @@
 struct clusterNode;
 
 /* clusterLink encapsulates everything needed to talk with a remote node. */
-typedef struct clusterLink {
+typedef struct clusterLink {   // 什么时候创建
     mstime_t ctime;             /* Link creation time */
     connection *conn;           /* Connection to remote node */
     sds sndbuf;                 /* Packet send buffer */
@@ -128,23 +128,23 @@ typedef struct clusterNode {
                                     if we don't have the master node in our
                                     tables. */
     unsigned long long last_in_ping_gossip; /* The number of the last carried in the ping gossip section */
-    mstime_t ping_sent;      /* Unix time we sent latest ping */
+    mstime_t ping_sent;      /* Unix time we sent latest ping */  // 0代表还没有pending ping
     mstime_t pong_received;  /* Unix time we received the pong */
     mstime_t data_received;  /* Unix time we received any data */
     mstime_t fail_time;      /* Unix time when FAIL flag was set */
     mstime_t voted_time;     /* Last time we voted for a slave of this master */
     mstime_t repl_offset_time;  /* Unix time we received offset for this node */
     mstime_t orphaned_time;     /* Starting time of orphaned master condition */
-    long long repl_offset;      /* Last known repl offset for this node. */
+    long long repl_offset;      /* Last known repl offset for this node. */  // master slave都是这个字段
     char ip[NET_IP_STR_LEN];    /* Latest known IP address of this node */
     sds hostname;               /* The known hostname for this node */
     int port;                   /* Latest known clients port (TLS or plain). */
     int pport;                  /* Latest known clients plaintext port. Only used
                                    if the main clients port is for TLS. */
     int cport;                  /* Latest known cluster port of this node. */
-    clusterLink *link;          /* TCP/IP link established toward this node */
-    clusterLink *inbound_link;  /* TCP/IP link accepted from this node */
-    list *fail_reports;         /* List of nodes signaling this as failing */
+    clusterLink *link;          /* TCP/IP link established toward this node */  // 输出连接
+    clusterLink *inbound_link;  /* TCP/IP link accepted from this node */  // 输入连接
+    list *fail_reports;         /* List of nodes signaling this as failing */  // 当前节点A记录了哪些节点认为A pfail
 } clusterNode;
 
 /* Slot to keys for a single slot. The keys in the same slot are linked together
@@ -220,7 +220,7 @@ typedef struct {
     char ip[NET_IP_STR_LEN];  /* IP address last time it was seen */
     uint16_t port;              /* base port last time it was seen */
     uint16_t cport;             /* cluster port last time it was seen */
-    uint16_t flags;             /* node->flags copy */
+    uint16_t flags;             /* node->flags copy CLUSTER_NODE_PFAIL 等*/
     uint16_t pport;             /* plaintext-port, when base port is TLS */
     uint16_t notused1;
 } clusterMsgDataGossip;

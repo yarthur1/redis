@@ -2666,7 +2666,7 @@ void initServer(void) {
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
     }
 
-    if (server.cluster_enabled) clusterInit();
+    if (server.cluster_enabled) clusterInit();   // 集群初始化函数
     scriptingInit(1);
     functionsInit();
     slowlogInit();

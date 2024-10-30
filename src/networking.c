@@ -3934,7 +3934,7 @@ void unblockPostponedClients() {
  * The function always succeed, even if there is already a pause in progress.
  * In such a case, the duration is set to the maximum and new end time and the
  * type is set to the more restrictive type of pause. */
-void pauseClients(pause_purpose purpose, mstime_t end, pause_type type) {
+void pauseClients(pause_purpose purpose, mstime_t end, pause_type type) {  //如何实现暂停
     /* Manage pause type and end time per pause purpose. */
     if (server.client_pause_per_purpose[purpose] == NULL) {
         server.client_pause_per_purpose[purpose] = zmalloc(sizeof(pause_event));

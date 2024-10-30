@@ -264,7 +264,7 @@ void activeExpireCycle(int type) {
                         de = de->next;
 
                         ttl = dictGetSignedIntegerVal(e)-now;
-                        if (activeExpireCycleTryExpire(db,e,now)) expired++;
+                        if (activeExpireCycleTryExpire(db,e,now)) expired++;  // 删除key
                         if (ttl > 0) {
                             /* We want the average TTL of keys yet
                              * not expired. */
