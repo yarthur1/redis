@@ -212,7 +212,7 @@ int Block_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     } else if (RedisModule_IsBlockedTimeoutRequest(ctx)) {
         RedisModule_UnblockClient(blocked_client, NULL); /* Must be called to avoid leaks. */
         blocked_client = NULL;
-        return RedisModule_ReplyWithSimpleString(ctx, "Timed out");
+        return RedisModule_ReplyWithSimpleString(ctx, "Resource temporarily unavailable");
     }
 
     if (argc != 2) return RedisModule_WrongArity(ctx);

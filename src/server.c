@@ -3146,7 +3146,7 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
     if (server.aof_state != AOF_OFF && target & PROPAGATE_AOF)
         feedAppendOnlyFile(dbid,argv,argc);
     if (target & PROPAGATE_REPL)
-        replicationFeedSlaves(server.slaves,dbid,argv,argc);
+        replicationFeedSlaves(server.slaves,dbid,argv,argc); //命令传播
 }
 
 /* Used inside commands to schedule the propagation of additional commands
