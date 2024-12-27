@@ -12,12 +12,12 @@
 /* IO threads. */
 static IOThread IOThreads[IO_THREADS_MAX_NUM];
 
-/* For main thread */
-static list *mainThreadPendingClientsToIOThreads[IO_THREADS_MAX_NUM]; /* Clients to IO threads */
-static list *mainThreadProcessingClients[IO_THREADS_MAX_NUM]; /* Clients in processing */
-static list *mainThreadPendingClients[IO_THREADS_MAX_NUM]; /* Pending clients from IO threads */
+/* For main thread */  // 主线程一个event loop监听多个eventfd
+static list *mainThreadPendingClientsToIOThreads[IO_THREADS_MAX_NUM]; /* Clients to IO threads */  // 需要转移给io thread
+static list *mainThreadProcessingClients[IO_THREADS_MAX_NUM]; /* Clients in processing */   // 需要主线程处理的
+static list *mainThreadPendingClients[IO_THREADS_MAX_NUM]; /* Pending clients from IO threads */  // 从io thread转移过来的
 static pthread_mutex_t mainThreadPendingClientsMutexes[IO_THREADS_MAX_NUM]; /* Mutex for pending clients */
-static eventNotifier* mainThreadPendingClientsNotifiers[IO_THREADS_MAX_NUM]; /* Notifier for pending clients */
+static eventNotifier* mainThreadPendingClientsNotifiers[IO_THREADS_MAX_NUM]; /* Notifier for pending clients */  // io thread用来通知主线程的，主线程监听
 
 /* When IO threads read a complete query of clients or want to free clients, it
  * should remove it from its clients list and put the client in the list to main
@@ -25,7 +25,7 @@ static eventNotifier* mainThreadPendingClientsNotifiers[IO_THREADS_MAX_NUM]; /* 
 void enqueuePendingClientsToMainThread(client *c, int unbind) {
     /* If the IO thread may no longer manage it, such as closing client, we should
      * unbind client from event loop, so main thread doesn't need to do it costly. */
-    if (unbind) connUnbindEventLoop(c->conn);
+    if (unbind) connUnbindEventLoop(c->conn);  // io thread不再负责
     /* Just skip if it already is transferred. */
     if (c->io_thread_client_list_node) {
         listDelNode(IOThreads[c->tid].clients, c->io_thread_client_list_node);
@@ -38,12 +38,12 @@ void enqueuePendingClientsToMainThread(client *c, int unbind) {
 
 /* Unbind connection of client from io thread event loop, write and read handlers
  * also be removed, ensures that we can operate the client safely. */
-void unbindClientFromIOThreadEventLoop(client *c) {
+void unbindClientFromIOThreadEventLoop(client *c) {  // 每次解绑都需要暂停thread
     serverAssert(c->tid != IOTHREAD_MAIN_THREAD_ID &&
                  c->running_tid == IOTHREAD_MAIN_THREAD_ID);
     if (!connHasEventLoop(c->conn)) return;
     /* As calling in main thread, we should pause the io thread to make it safe. */
-    pauseIOThread(c->tid);
+    pauseIOThread(c->tid);  //?
     connUnbindEventLoop(c->conn);
     resumeIOThread(c->tid);
 }
@@ -51,7 +51,7 @@ void unbindClientFromIOThreadEventLoop(client *c) {
 /* When main thread is processing a client from IO thread, and wants to keep it,
  * we should unbind connection of client from io thread event loop first,
  * and then bind the client connection into server's event loop. */
-void keepClientInMainThread(client *c) {
+void keepClientInMainThread(client *c) {  // client从io thread转移给主线程
     serverAssert(c->tid != IOTHREAD_MAIN_THREAD_ID &&
                  c->running_tid == IOTHREAD_MAIN_THREAD_ID);
     /* IO thread no longer manage it. */
@@ -99,7 +99,7 @@ void fetchClientFromIOThread(client *c) {
     /* Unbind connection of client from io thread event loop. */
     connUnbindEventLoop(c->conn);
     /* Now main thread can process it. */
-    c->running_tid = IOTHREAD_MAIN_THREAD_ID;
+    c->running_tid = IOTHREAD_MAIN_THREAD_ID;  // 转移给主线程
     resumeIOThread(c->tid);
 }
 
@@ -110,7 +110,7 @@ void fetchClientFromIOThread(client *c) {
  * - Replica, pubsub, monitor, blocked, tracking clients, main thread may
  *   directly write them a reply when conditions are met.
  * - Script command with debug may operate connection directly. */
-int isClientMustHandledByMainThread(client *c) {
+int isClientMustHandledByMainThread(client *c) {  // 必须主线程处理的情况
     if (c->flags & (CLIENT_CLOSE_ASAP | CLIENT_MASTER | CLIENT_SLAVE |
                     CLIENT_PUBSUB | CLIENT_MONITOR | CLIENT_BLOCKED |
                     CLIENT_UNBLOCKED | CLIENT_TRACKING | CLIENT_LUA_DEBUG |
@@ -123,7 +123,7 @@ int isClientMustHandledByMainThread(client *c) {
 
 /* When the main thread accepts a new client or transfers clients to IO threads,
  * it assigns the client to the IO thread with the fewest clients. */
-void assignClientToIOThread(client *c) {
+void assignClientToIOThread(client *c) {  // client转移给任务数最少的io thread
     serverAssert(c->tid == IOTHREAD_MAIN_THREAD_ID);
     /* Find the IO thread with the fewest clients. */
     int min_id = 0;
@@ -136,7 +136,7 @@ void assignClientToIOThread(client *c) {
     }
 
     /* Assign the client to the IO thread. */
-    server.io_threads_clients_num[c->tid]--;
+    server.io_threads_clients_num[c->tid]--;  // io_threads_clients_num只会在主线程修改
     c->tid = min_id;
     c->running_tid = min_id;
     server.io_threads_clients_num[min_id]++;
@@ -174,7 +174,7 @@ int resizeAllIOThreadsEventLoops(size_t newsize) {
  * the target status. Besides we use atomic variable to make sure memory visibility
  * and ordering.
  *
- * Make sure that only the main thread can call these function,
+ * Make sure that only the main thread can call these function,   // 主线程才能暂停io thread
  *  - pauseIOThread, resumeIOThread
  *  - pauseAllIOThreads, resumeAllIOThreads
  *  - pauseIOThreadsRange, resumeIOThreadsRange
@@ -212,7 +212,7 @@ void pauseIOThreadsRange(int start, int end) {
         atomicSetWithSync(IOThreads[i].paused, IO_THREAD_PAUSING);
         /* Just notify io thread, no actual job, since io threads check paused
          * status in IOThreadBeforeSleep, so just wake it up if polling wait. */
-        triggerEventNotifier(IOThreads[i].pending_clients_notifier);
+        triggerEventNotifier(IOThreads[i].pending_clients_notifier);  // eventfd通知，io-thread把任务完成，然后会pause自己
     }
 
     /* Wait for all io threads paused */
@@ -269,7 +269,7 @@ void handlePauseAndResume(IOThread *t) {
 
 /* Pause the specific io thread, and wait for it to be paused. */
 void pauseIOThread(int id) {
-    pauseIOThreadsRange(id, id);
+    pauseIOThreadsRange(id, id);  // 会while忙等，暂停后函数返回
 }
 
 /* Resume the specific io thread, and wait for it to be resumed. */
@@ -322,7 +322,7 @@ extern int ProcessingEventsWhileBlocked;
 void processClientsFromIOThread(IOThread *t) {
     listNode *node = NULL;
 
-    while (listLength(mainThreadProcessingClients[t->id])) {
+    while (listLength(mainThreadProcessingClients[t->id])) {  // 先遍历处理当前的job
         /* Each time we pop up only the first client to process to guarantee
          * reentrancy safety. */
         if (node) zfree(node);
@@ -354,7 +354,7 @@ void processClientsFromIOThread(IOThread *t) {
         /* Process the pending command and input buffer. */
         if (!c->read_error && c->io_flags & CLIENT_IO_PENDING_COMMAND) {
             c->flags |= CLIENT_PENDING_COMMAND;
-            if (processPendingCommandAndInputBuffer(c) == C_ERR) {
+            if (processPendingCommandAndInputBuffer(c) == C_ERR) {  // 执行命令
                 /* If the client is no longer valid, it must be freed safely. */
                 continue;
             }
@@ -365,7 +365,7 @@ void processClientsFromIOThread(IOThread *t) {
          * queue. And we should do that first since we may keep the client
          * in main thread instead of returning to io threads. */
         if (!(c->flags & CLIENT_PENDING_WRITE) && clientHasPendingReplies(c))
-            putClientInPendingWriteQueue(c);
+            putClientInPendingWriteQueue(c);  // 主线程处理
 
         /* The client only can be processed in the main thread, otherwise data
          * race will happen, since we may touch client's data in main thread. */
@@ -381,7 +381,7 @@ void processClientsFromIOThread(IOThread *t) {
             listUnlinkNode(server.clients_pending_write, &c->clients_pending_write_node);
         }
         c->running_tid = c->tid;
-        listLinkNodeHead(mainThreadPendingClientsToIOThreads[c->tid], node);
+        listLinkNodeHead(mainThreadPendingClientsToIOThreads[c->tid], node);  // 执行完后转移给io thread
         node = NULL;
     }
     if (node) zfree(node);
@@ -401,7 +401,7 @@ void processClientsFromIOThread(IOThread *t) {
         !ProcessingEventsWhileBlocked)
     {
         pthread_mutex_lock(&(t->pending_clients_mutex));
-        listJoin(t->pending_clients, mainThreadPendingClientsToIOThreads[t->id]);
+        listJoin(t->pending_clients, mainThreadPendingClientsToIOThreads[t->id]);  // 转移给io thread
         pthread_mutex_unlock(&(t->pending_clients_mutex));
         triggerEventNotifier(t->pending_clients_notifier);
     }
@@ -410,7 +410,7 @@ void processClientsFromIOThread(IOThread *t) {
 /* When the io thread finishes processing the client with the read event, it will
  * notify the main thread through event triggering in IOThreadBeforeSleep. The main
  * thread handles the event through this function. */
-void handleClientsFromIOThread(struct aeEventLoop *el, int fd, void *ptr, int mask) {
+void handleClientsFromIOThread(struct aeEventLoop *el, int fd, void *ptr, int mask) { // 主线程eventfd的读回调函数
     UNUSED(el);
     UNUSED(mask);
 
@@ -451,7 +451,7 @@ void processClientsOfAllIOThreads(void) {
  * it first and install read handler, and we don't uninstall client read handler
  * unless freeing client. If the client has pending reply, we just reply to client
  * first, and then install write handler if needed. */
-void handleClientsFromMainThread(struct aeEventLoop *ae, int fd, void *ptr, int mask) {
+void handleClientsFromMainThread(struct aeEventLoop *ae, int fd, void *ptr, int mask) {  // io线程的eventfd的读回调函数
     UNUSED(ae);
     UNUSED(mask);
 
@@ -462,7 +462,7 @@ void handleClientsFromMainThread(struct aeEventLoop *ae, int fd, void *ptr, int 
     handleEventNotifier(t->pending_clients_notifier);
 
     pthread_mutex_lock(&t->pending_clients_mutex);
-    listJoin(t->processing_clients, t->pending_clients);
+    listJoin(t->processing_clients, t->pending_clients); // 获取需要处理的任务
     pthread_mutex_unlock(&t->pending_clients_mutex);
     if (listLength(t->processing_clients) == 0) return;
 
@@ -478,7 +478,7 @@ void handleClientsFromMainThread(struct aeEventLoop *ae, int fd, void *ptr, int 
 
         /* Link client in IO thread clients list first. */
         serverAssert(c->io_thread_client_list_node == NULL);
-        listAddNodeTail(t->clients, c);
+        listAddNodeTail(t->clients, c);  // 转移给io thread
         c->io_thread_client_list_node = listLast(t->clients);
 
         /* The client is asked to close, we just let main thread free it. */
@@ -495,11 +495,11 @@ void handleClientsFromMainThread(struct aeEventLoop *ae, int fd, void *ptr, int 
         if (!connHasEventLoop(c->conn)) {
             connRebindEventLoop(c->conn, t->el);
             serverAssert(!connHasReadHandler(c->conn));
-            connSetReadHandler(c->conn, readQueryFromClient);
+            connSetReadHandler(c->conn, readQueryFromClient);  // 设置读回调
         }
 
         /* If the client has pending replies, write replies to client. */
-        if (clientHasPendingReplies(c)) {
+        if (clientHasPendingReplies(c)) {  // 返回结果
             writeToClient(c, 0);
             if (!(c->io_flags & CLIENT_IO_CLOSE_ASAP) && clientHasPendingReplies(c)) {
                 connSetWriteHandler(c->conn, sendReplyToClient);
@@ -509,7 +509,7 @@ void handleClientsFromMainThread(struct aeEventLoop *ae, int fd, void *ptr, int 
     listEmpty(t->processing_clients);
 }
 
-void IOThreadBeforeSleep(struct aeEventLoop *el) {
+void IOThreadBeforeSleep(struct aeEventLoop *el) {  // 转移给主线程是当前io thread已经处理完其他任务时
     IOThread *t = el->privdata[0];
 
     /* Handle pending data(typical TLS). */
@@ -519,7 +519,7 @@ void IOThreadBeforeSleep(struct aeEventLoop *el) {
     aeSetDontWait(el, connTypeHasPendingData(el));
 
     /* Check if i am being paused, pause myself and resume. */
-    handlePauseAndResume(t);
+    handlePauseAndResume(t);  //没有job时才会暂停，并且while等待resume
 
     /* Check if there are clients to be processed in main thread, and then join
      * them to the list of main thread. */
@@ -530,7 +530,7 @@ void IOThreadBeforeSleep(struct aeEventLoop *el) {
         /* Trigger an event, maybe an error is returned when buffer is full
          * if using pipe, but no worry, main thread will handle all clients
          * in list when receiving a notification. */
-        triggerEventNotifier(mainThreadPendingClientsNotifiers[t->id]);
+        triggerEventNotifier(mainThreadPendingClientsNotifiers[t->id]);  // 加锁修改数据之后再发送通知
     }
 }
 
@@ -582,7 +582,7 @@ void initThreadedIO(void) {
 
         t->pending_clients_notifier = createEventNotifier();
         if (aeCreateFileEvent(t->el, getReadEventFd(t->pending_clients_notifier),
-                              AE_READABLE, handleClientsFromMainThread, t) != AE_OK)
+                              AE_READABLE, handleClientsFromMainThread, t) != AE_OK)  // 注册了eventfd读回调
         {
             serverLog(LL_WARNING, "Fatal: Can't register file event for IO thread notifications.");
             exit(1);

@@ -1319,7 +1319,7 @@ typedef struct client {
     clientReqResInfo reqres;
 #endif
 } client;
-
+// 每个io thread监听自己的eventfd
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     uint8_t id;                                 /* The unique ID assigned, if IO_THREADS_MAX_NUM is more
                                                  * than 256, we should also promote the data type. */
@@ -1328,10 +1328,10 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     aeEventLoop *el;                            /* Main event loop of io thread. */
     list *pending_clients;                      /* List of clients with pending writes. */
     list *processing_clients;                   /* List of clients being processed. */
-    eventNotifier *pending_clients_notifier;    /* Used to wake up the loop when write should be performed. */
+    eventNotifier *pending_clients_notifier;    /* Used to wake up the loop when write should be performed. */ // 主线程用来通知io thread
     pthread_mutex_t pending_clients_mutex;      /* Mutex for pending write list */
-    list *pending_clients_to_main_thread;       /* Clients that are waiting to be executed by the main thread. */
-    list *clients;                              /* IO thread managed clients. */
+    list *pending_clients_to_main_thread;       /* Clients that are waiting to be executed by the main thread. */  // 等待给main thread
+    list *clients;                              /* IO thread managed clients. */  // io thread负责的client
 } IOThread;
 
 /* ACL information */
